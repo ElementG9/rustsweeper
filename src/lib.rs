@@ -49,7 +49,7 @@ pub fn run() {
     let mut game = Game::new(width, height, difficulty);
     while game.running {
         println!("{}", game.get_board());
-        match prompt("\nWhat would you like to do?\n1. Uncover a tile\n2. Flag a tile\n3. Give up\n> ", 1, 3) {
+        match prompt("\nWhat would you like to do?\n1. Uncover a tile\n2. Flag a tile\n3. Toggle empty tiles\n4. Give up\n> ", 1, 4) {
             1 => {
                 let pos = prompt_coords(0, game.board.width - 1, 0, game.board.height - 1);
                 println!("Uncovering ({}, {})", pos.x, pos.y);
@@ -61,6 +61,9 @@ pub fn run() {
                 game.flag(pos.x as usize, pos.y as usize);
             },
             3 => {
+                game.show_empty = !game.show_empty;
+            },
+            4 => {
                 game.end();
             },
             _ => {}
@@ -139,6 +142,7 @@ pub struct Game {
     pub uncovered: Vec<Vec<bool>>,
     pub flags: Vec<Coord>,
     pub num_bombs: usize,
+    pub show_empty: bool,
 }
 impl Game {
     pub fn new(width: usize, height: usize, difficulty: Difficulty) -> Game {
@@ -169,6 +173,7 @@ impl Game {
             uncovered,
             flags: Vec::new(),
             num_bombs,
+            show_empty: true
         }
     }
     pub fn get_valid_neighbors(&self, x: usize, y: usize) -> Vec<Coord> {
@@ -304,7 +309,7 @@ impl Game {
                                 6 => "6".color(Color::LightBlue),
                                 7 => "7".color(Color::Black),
                                 8 => "8".color(Color::White),
-                                _ => ".".color(Color::White),
+                                _ => if self.show_empty { ".".color(Color::DarkGray) } else { " ".color(Color::DarkGray) },
                             });
                         }
                         Cell::Bomb => {
