@@ -1,8 +1,14 @@
 extern crate rand;
+extern crate colorful;
+
 use std::io::Write;
+use colorful::Color;
+use colorful::Colorful;
+use colorful::HSL;
 
 pub fn run() {
-    println!("Welcome to Rustsweeper!");
+    println!("{}", "Welcome to Rustsweeper!".color(Color::Yellow));
+
     let mut width = 10;
     let mut height = 10;
     match prompt("\nChoose your size:\n1. 10 x 10\n2. 20 x 10\n3. 20 x 20\n4. 40 x 20\n> ", 1, 4) {
@@ -24,6 +30,7 @@ pub fn run() {
         },
         _ => {}
     };
+
     let mut difficulty = Difficulty::Easy;
     match prompt("\nChoose your difficulty:\n1. Easy - 10% bombs\n2. Medium - 20% bombs\n3. Hard - 40% bombs\n> ", 1, 3) {
         1 => {
@@ -42,7 +49,7 @@ pub fn run() {
     let mut game = Game::new(width, height, difficulty);
     while game.running {
         println!("{}", game.get_board());
-        match prompt("\nWhat would you like to do?\n1. Uncover a tile\n2. Flag a tile\n> ", 1, 2) {
+        match prompt("\nWhat would you like to do?\n1. Uncover a tile\n2. Flag a tile\n3. Give up\n> ", 1, 3) {
             1 => {
                 let pos = prompt_coords(0, game.board.width - 1, 0, game.board.height - 1);
                 println!("Uncovering ({}, {})", pos.x, pos.y);
@@ -53,9 +60,14 @@ pub fn run() {
                 println!("Flagging ({}, {})", pos.x, pos.y);
                 game.flag(pos.x as usize, pos.y as usize);
             },
+            3 => {
+                game.end();
+            },
             _ => {}
         };
+        game.check_win();
     }
+    println!("\nThanks for playing!");
 }
 
 #[allow(dead_code)]
@@ -72,7 +84,7 @@ pub enum Difficulty {
     Hard,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, PartialEq, Clone, Copy)]
 pub struct Coord {
     pub x: isize,
     pub y: isize,
@@ -125,7 +137,8 @@ pub struct Game {
     pub board: Board,
     pub difficulty: Difficulty,
     pub uncovered: Vec<Vec<bool>>,
-    pub flags: Vec<(usize, usize)>
+    pub flags: Vec<Coord>,
+    pub num_bombs: usize,
 }
 impl Game {
     pub fn new(width: usize, height: usize, difficulty: Difficulty) -> Game {
@@ -154,7 +167,8 @@ impl Game {
             board,
             difficulty,
             uncovered,
-            flags: Vec::new()
+            flags: Vec::new(),
+            num_bombs,
         }
     }
     pub fn get_valid_neighbors(&self, x: usize, y: usize) -> Vec<Coord> {
@@ -208,10 +222,9 @@ impl Game {
                 }
             }
             if self.board.get(x, y) == &Cell::Bomb {
-                println!("Uncovered a bomb!");
-                self.uncover_all();
-                println!("{}", self.get_board());
-                self.running = false;
+                self.lose();
+                // println!("{}", "You uncovered a bomb!".color(Color::LightRed));
+                // self.end();
             }
         }
     }
@@ -225,10 +238,11 @@ impl Game {
             uncovered.push(row);
         }
         self.uncovered = uncovered;
+        self.running = false;
     }
     pub fn check_flagged(&self, x: usize, y: usize) -> bool {
         for flag in &self.flags {
-            if *flag == (x, y) {
+            if flag == &Coord::new(x as isize, y as isize) {
                 return true;
             }
         }
@@ -236,10 +250,10 @@ impl Game {
     }
     pub fn flag(&mut self, x: usize, y: usize) {
         if !self.check_flagged(x, y) {
-            self.flags.push((x, y));
+            self.flags.push(Coord::new(x as isize, y as isize));
         } else {
             for i in 0..self.flags.len() {
-                if self.flags[i] == (x, y) {
+                if self.flags[i] == Coord::new(x as isize, y as isize) {
                     self.flags.remove(i);
                     break;
                 }
@@ -277,15 +291,29 @@ impl Game {
             out.push_str(&temp);
             for x in 0..self.board.width {
                 if self.check_uncovered(x, y) {
-                    let bomb_count = self.get_bomb_count(x, y);
-                    let count = &format!("{}", bomb_count);
-                    out.push_str(match self.board.get(x, y) {
-                        Cell::Empty => if bomb_count == 0 { "." } else { count },
-                        Cell::Bomb => "@",
-                    });
+                    let count = self.get_bomb_count(x, y);
+
+                    match self.board.get(x, y) {// ▓▒░
+                        Cell::Empty => {
+                            out = format!("{}{}", out, match count {
+                                1 => "1".color(Color::Blue),
+                                2 => "2".color(Color::Green),
+                                3 => "3".color(Color::Red),
+                                4 => "4".color(Color::DarkBlue),
+                                5 => "5".color(Color::DarkRed1),
+                                6 => "6".color(Color::LightBlue),
+                                7 => "7".color(Color::Black),
+                                8 => "8".color(Color::White),
+                                _ => ".".color(Color::White),
+                            });
+                        }
+                        Cell::Bomb => {
+                            out = format!("{}{}", out, "@".color(Color::Red));
+                        },
+                    };
                 } else {
                     if self.check_flagged(x, y) {
-                        out.push_str("F");
+                        out = format!("{}{}", out, "F".color(Color::Yellow));
                     } else {
                         out.push_str("_");
                     }
@@ -296,6 +324,43 @@ impl Game {
         }
         out.pop(); // Remove trailing newline.
         out
+    }
+    pub fn end(&mut self) {
+        self.uncover_all();
+        println!("{}", self.get_board());
+    }
+    pub fn check_win(&mut self) {
+        if self.flags.len() == self.num_bombs {
+            let mut all_bombs = true;
+            for flag in &self.flags {
+                if self.board.get(flag.x as usize, flag.y as usize) != &Cell::Bomb {
+                    all_bombs = false;
+                }
+            }
+            if all_bombs {
+                self.win();
+            }
+        }
+    }
+    pub fn win(&mut self) {
+        print!("\n");
+        println!("{}", "__  __               _       __            __".gradient_with_color(HSL::new(0.0, 1.0, 0.5), HSL::new(0.833, 1.0, 0.5)));
+        println!("{}", "\\ \\/ /___  __  __   | |     / /___  ____  / /".gradient_with_color(HSL::new(0.0, 1.0, 0.5), HSL::new(0.833, 1.0, 0.5)));
+        println!("{}", " \\  / __ \\/ / / /   | | /| / / __ \\/ __ \\/ / ".gradient_with_color(HSL::new(0.0, 1.0, 0.5), HSL::new(0.833, 1.0, 0.5)));
+        println!("{}", " / / /_/ / /_/ /    | |/ |/ / /_/ / / / /_/  ".gradient_with_color(HSL::new(0.0, 1.0, 0.5), HSL::new(0.833, 1.0, 0.5)));
+        println!("{}", "/_/\\____/\\__,_/     |__/|__/\\____/_/ /_(_)   ".gradient_with_color(HSL::new(0.0, 1.0, 0.5), HSL::new(0.833, 1.0, 0.5)));
+        print!("\n");
+        self.end();
+    }
+    pub fn lose(&mut self) {
+        print!("\n");
+        println!("{}", "__  __               __                    __"    .color(Color::LightRed));
+        println!("{}", "\\ \\/ /___  __  __   / /   ____  ________  / /"  .color(Color::LightRed));
+        println!("{}", " \\  / __ \\/ / / /  / /   / __ \\/ ___/ _ \\/ / ".color(Color::LightRed));
+        println!("{}", " / / /_/ / /_/ /  / /___/ /_/ (__  )  __/_/  "    .color(Color::LightRed));
+        println!("{}", "/_/\\____/\\__,_/  /_____/\\____/____/\\___(_)   ".color(Color::LightRed));
+        print!("\n");
+        self.end();
     }
 }
 
@@ -313,17 +378,10 @@ pub fn random(max: usize) -> usize {
     ((max as f64) * rand_amt) as usize
 }
 pub fn read_num() -> isize {
-    std::io::stdout().flush().unwrap();
-    let mut input = String::new();
-    match std::io::stdin().read_line(&mut input) {
-        Ok(_bytes_read) => {
-            input.pop(); // Remove trailing newline
-            std::io::stdout().flush().unwrap();
-            return input.parse::<isize>().expect("input was not isize");
-        }
-        Err(err) => {
-            eprintln!("Error reading input: {}", err);
-            return 0;
+    loop {
+        let num = read();
+        if str_len(&num) != 0 {
+            return num.parse::<isize>().expect("input was not isize");
         }
     }
 }
